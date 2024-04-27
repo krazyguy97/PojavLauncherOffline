@@ -130,17 +130,15 @@ public class mcAccountSpinner extends AppCompatSpinner implements AdapterView.On
 
     /* Triggered when we need to perform mojang login */
     private final ExtraListener<String[]> mMojangLoginListener = (key, value) -> {
-        if(value[1].isEmpty()){ // Test mode
-            MinecraftAccount account = new MinecraftAccount();
-            account.username = value[0];
-            try {
-                account.save();
-            }catch (IOException e){
-                Log.e("McAccountSpinner", "Failed to save the account : " + e);
-            }
-
-            mDoneListener.onLoginDone(account);
+        MinecraftAccount account = new MinecraftAccount();
+        account.username = value[0];
+        try {
+            account.save();
+        }catch (IOException e){
+            Log.e("McAccountSpinner", "Failed to save the account : " + e);
         }
+
+        mDoneListener.onLoginDone(account);
         return false;
     };
 

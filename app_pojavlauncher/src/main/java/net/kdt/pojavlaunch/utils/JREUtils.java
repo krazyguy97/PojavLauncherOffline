@@ -7,6 +7,8 @@ import static net.kdt.pojavlaunch.Tools.NATIVE_LIB_DIR;
 import static net.kdt.pojavlaunch.Tools.currentDisplayMetrics;
 import static net.kdt.pojavlaunch.Tools.shareLog;
 import static net.kdt.pojavlaunch.prefs.LauncherPreferences.PREF_DUMP_SHADERS;
+import static net.kdt.pojavlaunch.prefs.LauncherPreferences.PREF_VSYNC_IN_ZINK;
+import static net.kdt.pojavlaunch.prefs.LauncherPreferences.PREF_ZINK_PREFER_SYSTEM_DRIVER;
 
 import android.app.*;
 import android.content.*;
@@ -15,12 +17,15 @@ import android.system.*;
 import android.util.*;
 import android.widget.Toast;
 
+import androidx.appcompat.app.AppCompatActivity;
+
 import com.oracle.dalvik.*;
 import java.io.*;
 import java.util.*;
 import net.kdt.pojavlaunch.*;
 import net.kdt.pojavlaunch.extra.ExtraConstants;
 import net.kdt.pojavlaunch.extra.ExtraCore;
+import net.kdt.pojavlaunch.lifecycle.LifecycleAwareAlertDialog;
 import net.kdt.pojavlaunch.multirt.MultiRTUtils;
 import net.kdt.pojavlaunch.multirt.Runtime;
 import net.kdt.pojavlaunch.plugins.FFmpegPlugin;
@@ -176,6 +181,9 @@ public class JREUtils {
         envMap.put("TMPDIR", Tools.DIR_CACHE.getAbsolutePath());
         envMap.put("LIBGL_MIPMAP", "3");
 
+        // Prevent OptiFine (and other error-reporting stuff in Minecraft) from balooning the log
+        envMap.put("LIBGL_NOERROR", "1");
+
         // On certain GLES drivers, overloading default functions shader hack fails, so disable it
         envMap.put("LIBGL_NOINTOVLHACK", "1");
 
@@ -184,6 +192,12 @@ public class JREUtils {
 
         if(PREF_DUMP_SHADERS)
             envMap.put("LIBGL_VGPU_DUMP", "1");
+        if(PREF_ZINK_PREFER_SYSTEM_DRIVER)
+            envMap.put("POJAV_ZINK_PREFER_SYSTEM_DRIVER", "1");
+        if(PREF_VSYNC_IN_ZINK)
+            envMap.put("POJAV_VSYNC_IN_ZINK", "1");
+        if(Tools.deviceHasHangingLinker())
+            envMap.put("POJAV_EMUI_ITERATOR_MITIGATE", "1");
 
 
         // The OPEN GL version is changed according
@@ -192,10 +206,6 @@ public class JREUtils {
         envMap.put("FORCE_VSYNC", String.valueOf(LauncherPreferences.PREF_FORCE_VSYNC));
 
         envMap.put("MESA_GLSL_CACHE_DIR", Tools.DIR_CACHE.getAbsolutePath());
-        if (LOCAL_RENDERER != null) {
-            envMap.put("MESA_GL_VERSION_OVERRIDE", LOCAL_RENDERER.equals("opengles3_virgl")?"4.3":"4.6");
-            envMap.put("MESA_GLSL_VERSION_OVERRIDE", LOCAL_RENDERER.equals("opengles3_virgl")?"430":"460");
-        }
         envMap.put("force_glsl_extensions_warn", "true");
         envMap.put("allow_higher_compat_version", "true");
         envMap.put("allow_glsl_extension_directive_midshader", "true");
@@ -208,9 +218,6 @@ public class JREUtils {
             envMap.put("PATH", FFmpegPlugin.libraryPath+":"+envMap.get("PATH"));
         }
 
-        envMap.put("REGAL_GL_VENDOR", "Android");
-        envMap.put("REGAL_GL_RENDERER", "Regal");
-        envMap.put("REGAL_GL_VERSION", "4.5");
         if(LOCAL_RENDERER != null) {
             envMap.put("POJAV_RENDERER", LOCAL_RENDERER);
             if(LOCAL_RENDERER.equals("opengles3_desktopgl_angle_vulkan")) {
@@ -266,7 +273,7 @@ public class JREUtils {
         // return ldLibraryPath;
     }
 
-    public static int launchJavaVM(final Activity activity, final Runtime runtime, File gameDirectory, final List<String> JVMArgs, final String userArgsString) throws Throwable {
+    public static void launchJavaVM(final AppCompatActivity activity, final Runtime runtime, File gameDirectory, final List<String> JVMArgs, final String userArgsString) throws Throwable {
         String runtimeHome = MultiRTUtils.getRuntimeHome(runtime.name).getAbsolutePath();
 
         JREUtils.relocateLibPath(runtime, runtimeHome);
@@ -304,18 +311,13 @@ public class JREUtils {
         final int exitCode = VMLauncher.launchJVM(userArgs.toArray(new String[0]));
         Logger.appendToLog("Java Exit code: " + exitCode);
         if (exitCode != 0) {
-            activity.runOnUiThread(() -> {
-                AlertDialog.Builder dialog = new AlertDialog.Builder(activity);
-                dialog.setMessage(activity.getString(R.string.mcn_exit_title, exitCode));
+            LifecycleAwareAlertDialog.DialogCreator dialogCreator = (dialog, builder)->
+                    builder.setMessage(activity.getString(R.string.mcn_exit_title, exitCode))
+                    .setPositiveButton(R.string.main_share_logs, (dialogInterface, which)-> shareLog(activity));
 
-                dialog.setPositiveButton(R.string.main_share_logs, (p1, p2) -> {
-                    shareLog(activity);
-                    MainActivity.fullyExit();
-                });
-                dialog.show();
-            });
+            LifecycleAwareAlertDialog.haltOnDialog(activity.getLifecycle(), activity, dialogCreator);
         }
-        return exitCode;
+        MainActivity.fullyExit();
     }
 
     /**
@@ -354,7 +356,8 @@ public class JREUtils {
                 "-Dlog4j2.formatMsgNoLookups=true", //Log4j RCE mitigation
 
                 "-Dnet.minecraft.clientmodname=" + Tools.APP_NAME,
-                "-Dfml.earlyprogresswindow=false" //Forge 1.14+ workaround
+                "-Dfml.earlyprogresswindow=false", //Forge 1.14+ workaround
+                "-Dloader.disable_forked_guis=true"
         ));
         if(LauncherPreferences.PREF_ARC_CAPES) {
             overridableArguments.add("-javaagent:"+new File(Tools.DIR_DATA,"arc_dns_injector/arc_dns_injector.jar").getAbsolutePath()+"=23.95.137.176");
@@ -448,8 +451,7 @@ public class JREUtils {
             case "opengles2_5":
             case "opengles3":
                 renderLibrary = "libgl4es_114.so"; break;
-            case "opengles3_virgl":
-            case "vulkan_zink": renderLibrary = "libOSMesa_8.so"; break;
+            case "vulkan_zink": renderLibrary = "libOSMesa.so"; break;
             case "opengles3_desktopgl_angle_vulkan" : renderLibrary = "libtinywrapper.so"; break;
             default:
                 Log.w("RENDER_LIBRARY", "No renderer selected, defaulting to opengles2");

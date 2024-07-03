@@ -6,10 +6,12 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
 
+import androidx.preference.ListPreference;
 import androidx.preference.SwitchPreference;
 import androidx.preference.SwitchPreferenceCompat;
 
 import net.kdt.pojavlaunch.R;
+import net.kdt.pojavlaunch.Tools;
 import net.kdt.pojavlaunch.prefs.CustomSeekBarPreference;
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
 
@@ -22,9 +24,10 @@ public class LauncherPreferenceVideoFragment extends LauncherPreferenceFragment 
         addPreferencesFromResource(R.xml.pref_video);
 
         //Disable notch checking behavior on android 8.1 and below.
-        findPreference("ignoreNotch").setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && PREF_NOTCH_SIZE > 0);
+        requirePreference("ignoreNotch").setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && PREF_NOTCH_SIZE > 0);
 
-        CustomSeekBarPreference seek5 = findPreference("resolutionRatio");
+        CustomSeekBarPreference seek5 = requirePreference("resolutionRatio",
+                CustomSeekBarPreference.class);
         seek5.setMin(25);
         seek5.setSuffix(" %");
 
@@ -34,8 +37,16 @@ public class LauncherPreferenceVideoFragment extends LauncherPreferenceFragment 
         }
 
         // Sustained performance is only available since Nougat
-        SwitchPreference sustainedPerfSwitch = findPreference("sustainedPerformance");
+        SwitchPreference sustainedPerfSwitch = requirePreference("sustainedPerformance",
+                SwitchPreference.class);
         sustainedPerfSwitch.setVisible(Build.VERSION.SDK_INT >= Build.VERSION_CODES.N);
+
+        ListPreference rendererListPreference = requirePreference("renderer",
+                ListPreference.class);
+        Tools.RenderersList renderersList = Tools.getCompatibleRenderers(getContext());
+        rendererListPreference.setEntries(renderersList.rendererDisplayNames);
+        rendererListPreference.setEntryValues(renderersList.rendererIds.toArray(new String[0]));
+
         computeVisibility();
     }
 
@@ -46,7 +57,7 @@ public class LauncherPreferenceVideoFragment extends LauncherPreferenceFragment 
     }
 
     private void computeVisibility(){
-        SwitchPreferenceCompat preference = findPreference("force_vsync");
-        preference.setVisible(LauncherPreferences.PREF_USE_ALTERNATE_SURFACE);
+        requirePreference("force_vsync", SwitchPreferenceCompat.class)
+                .setVisible(LauncherPreferences.PREF_USE_ALTERNATE_SURFACE);
     }
 }

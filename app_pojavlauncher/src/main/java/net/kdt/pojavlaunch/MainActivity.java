@@ -1,6 +1,5 @@
 package net.kdt.pojavlaunch;
 
-import static net.kdt.pojavlaunch.Architecture.ARCH_X86;
 import static net.kdt.pojavlaunch.Tools.currentDisplayMetrics;
 import static net.kdt.pojavlaunch.prefs.LauncherPreferences.PREF_SUSTAINED_PERFORMANCE;
 import static net.kdt.pojavlaunch.prefs.LauncherPreferences.PREF_USE_ALTERNATE_SURFACE;
@@ -13,15 +12,17 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.pm.PackageManager;
+import android.content.ServiceConnection;
 import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.drawable.ColorDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.provider.DocumentsContract;
 import android.util.Log;
 import android.view.KeyEvent;
@@ -36,6 +37,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 
 import com.kdt.LoggerView;
@@ -43,11 +45,14 @@ import com.kdt.LoggerView;
 import net.kdt.pojavlaunch.customcontrols.ControlButtonMenuListener;
 import net.kdt.pojavlaunch.customcontrols.ControlData;
 import net.kdt.pojavlaunch.customcontrols.ControlDrawerData;
+import net.kdt.pojavlaunch.customcontrols.ControlJoystickData;
 import net.kdt.pojavlaunch.customcontrols.ControlLayout;
 import net.kdt.pojavlaunch.customcontrols.CustomControls;
 import net.kdt.pojavlaunch.customcontrols.EditorExitable;
 import net.kdt.pojavlaunch.customcontrols.keyboard.LwjglCharSender;
 import net.kdt.pojavlaunch.customcontrols.keyboard.TouchCharInput;
+import net.kdt.pojavlaunch.customcontrols.mouse.Touchpad;
+import net.kdt.pojavlaunch.lifecycle.ContextExecutor;
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
 import net.kdt.pojavlaunch.services.GameService;
 import net.kdt.pojavlaunch.utils.JREUtils;
@@ -61,7 +66,7 @@ import org.lwjgl.glfw.CallbackBridge;
 import java.io.File;
 import java.io.IOException;
 
-public class MainActivity extends BaseActivity implements ControlButtonMenuListener, EditorExitable {
+public class MainActivity extends BaseActivity implements ControlButtonMenuListener, EditorExitable, ServiceConnection {
     public static volatile ClipboardManager GLOBAL_CLIPBOARD;
     public static final String INTENT_MINECRAFT_VERSION = "intent_version";
 
@@ -83,13 +88,17 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
     private AdapterView.OnItemClickListener gameActionClickListener;
     public ArrayAdapter<String> ingameControlsEditorArrayAdapter;
     public AdapterView.OnItemClickListener ingameControlsEditorListener;
+    private GameService.LocalBinder mServiceBinder;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         minecraftProfile = LauncherProfiles.getCurrentProfile();
         MCOptionUtils.load(Tools.getGameDirPath(minecraftProfile).getAbsolutePath());
-        GameService.startService(this);
+
+        Intent gameServiceIntent = new Intent(this, GameService.class);
+        // Start the service a bit early
+        ContextCompat.startForegroundService(this, gameServiceIntent);
         initLayout(R.layout.activity_basemain);
         CallbackBridge.addGrabListener(touchpad);
         CallbackBridge.addGrabListener(minecraftGLView);
@@ -109,11 +118,11 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
             switch(position) {
                 case 0: mControlLayout.addControlButton(new ControlData("New")); break;
                 case 1: mControlLayout.addDrawer(new ControlDrawerData()); break;
-                //case 2: mControlLayout.addJoystickButton(new ControlData()); break;
-                case 2 : mControlLayout.openLoadDialog(); break;
-                case 3: mControlLayout.openSaveDialog(this); break;
-                case 4: mControlLayout.openSetDefaultDialog(); break;
-                case 5: mControlLayout.openExitDialog(this);
+                case 2: mControlLayout.addJoystickButton(new ControlJoystickData()); break;
+                case 3: mControlLayout.openLoadDialog(); break;
+                case 4: mControlLayout.openSaveDialog(this); break;
+                case 5: mControlLayout.openSetDefaultDialog(); break;
+                case 6: mControlLayout.openExitDialog(this);
             }
         };
 
@@ -121,6 +130,12 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         MCOptionUtils.MCOptionListener optionListener = MCOptionUtils::getMcScale;
         MCOptionUtils.addMCOptionListener(optionListener);
         mControlLayout.setModifiable(false);
+
+        // Set the activity for the executor. Must do this here, or else Tools.showErrorRemote() may not
+        // execute the correct method
+        ContextExecutor.setActivity(this);
+        //Now, attach to the service. The game will only start when this happens, to make sure that we know the right state.
+        bindService(gameServiceIntent, this, 0);
     }
 
     protected void initLayout(int resId) {
@@ -190,11 +205,9 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
 
                     runCraft(finalVersion, mVersionInfo);
                 }catch (Throwable e){
-                    Tools.showError(getApplicationContext(), e, true);
+                    Tools.showErrorRemote(e);
                 }
             });
-
-            minecraftGLView.start();
         } catch (Throwable e) {
             Tools.showError(this, e, true);
         }
@@ -274,6 +287,7 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         super.onDestroy();
         CallbackBridge.removeGrabListener(touchpad);
         CallbackBridge.removeGrabListener(minecraftGLView);
+        ContextExecutor.clearActivity();
     }
 
     @Override
@@ -320,17 +334,23 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         if(Tools.LOCAL_RENDERER == null) {
             Tools.LOCAL_RENDERER = LauncherPreferences.PREF_RENDERER;
         }
+        if(!Tools.checkRendererCompatible(this, Tools.LOCAL_RENDERER)) {
+            Tools.RenderersList renderersList = Tools.getCompatibleRenderers(this);
+            String firstCompatibleRenderer = renderersList.rendererIds.get(0);
+            Log.w("runCraft","Incompatible renderer "+Tools.LOCAL_RENDERER+ " will be replaced with "+firstCompatibleRenderer);
+            Tools.LOCAL_RENDERER = firstCompatibleRenderer;
+            Tools.releaseRenderersCache();
+        }
         MinecraftAccount minecraftAccount = PojavProfile.getCurrentProfileContent(this, null);
         Logger.appendToLog("--------- beginning with launcher debug");
         printLauncherInfo(versionId, Tools.isValidString(minecraftProfile.javaArgs) ? minecraftProfile.javaArgs : LauncherPreferences.PREF_CUSTOM_JAVA_ARGS);
-        if (Tools.LOCAL_RENDERER.equals("vulkan_zink")) {
-            checkVulkanZinkIsSupported();
-        }
         JREUtils.redirectAndPrintJRELog();
         LauncherProfiles.load();
         int requiredJavaVersion = 8;
         if(version.javaVersion != null) requiredJavaVersion = version.javaVersion.majorVersion;
         Tools.launchMinecraft(this, minecraftAccount, minecraftProfile, versionId, requiredJavaVersion);
+        //Note that we actually stall in the above function, even if the game crashes. But let's be safe.
+        Tools.runOnUiThread(()-> mServiceBinder.isActive = false);
     }
 
     private void printLauncherInfo(String gameVersion, String javaArguments) {
@@ -340,16 +360,6 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         Logger.appendToLog("Info: API version: " + Build.VERSION.SDK_INT);
         Logger.appendToLog("Info: Selected Minecraft version: " + gameVersion);
         Logger.appendToLog("Info: Custom Java arguments: \"" + javaArguments + "\"");
-    }
-
-    private void checkVulkanZinkIsSupported() {
-        if (Tools.DEVICE_ARCHITECTURE == ARCH_X86
-                || Build.VERSION.SDK_INT < 25
-                || !getPackageManager().hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_LEVEL)
-                || !getPackageManager().hasSystemFeature(PackageManager.FEATURE_VULKAN_HARDWARE_VERSION)) {
-            Logger.appendToLog("Error: Vulkan Zink renderer is not supported!");
-            throw new RuntimeException(getString(R.string. mcn_check_fail_vulkan_support));
-        }
     }
 
     private void dialogSendCustomKey() {
@@ -603,5 +613,18 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         navDrawer.setAdapter(gameActionArrayAdapter);
         navDrawer.setOnItemClickListener(gameActionClickListener);
         isInEditor = false;
+    }
+
+    @Override
+    public void onServiceConnected(ComponentName name, IBinder service) {
+        GameService.LocalBinder localBinder = (GameService.LocalBinder) service;
+        mServiceBinder = localBinder;
+        minecraftGLView.start(localBinder.isActive, touchpad);
+        localBinder.isActive = true;
+    }
+
+    @Override
+    public void onServiceDisconnected(ComponentName name) {
+
     }
 }

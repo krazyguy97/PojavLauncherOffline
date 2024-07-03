@@ -25,6 +25,7 @@ import net.kdt.pojavlaunch.R;
 import net.kdt.pojavlaunch.Tools;
 import net.kdt.pojavlaunch.extra.ExtraConstants;
 import net.kdt.pojavlaunch.extra.ExtraCore;
+import net.kdt.pojavlaunch.fragments.ProfileEditorFragment;
 import net.kdt.pojavlaunch.fragments.ProfileTypeSelectFragment;
 import net.kdt.pojavlaunch.prefs.LauncherPreferences;
 import net.kdt.pojavlaunch.profiles.ProfileAdapter;
@@ -38,7 +39,6 @@ import fr.spse.extended_view.ExtendedTextView;
  */
 public class mcVersionSpinner extends ExtendedTextView {
     private static final int VERSION_SPINNER_PROFILE_CREATE = 0;
-    private static final int VERSION_SPINNER_PROFILE_CREATE_MODDED = 1;
     public mcVersionSpinner(@NonNull Context context) {
         super(context);
         init();
@@ -56,6 +56,8 @@ public class mcVersionSpinner extends ExtendedTextView {
     private ListView mListView = null;
     private PopupWindow mPopupWindow = null;
     private Object mPopupAnimation;
+    private int mSelectedIndex;
+
     private final ProfileAdapter mProfileAdapter = new ProfileAdapter(new ProfileAdapterExtra[]{
             new ProfileAdapterExtra(VERSION_SPINNER_PROFILE_CREATE,
                     R.string.create_profile,
@@ -74,7 +76,17 @@ public class mcVersionSpinner extends ExtendedTextView {
 
     public void setSelection(int position){
         if(mListView != null) mListView.setSelection(position);
-        mProfileAdapter.setViewProfile(this, (String) mProfileAdapter.getItem(position), false);
+        mProfileAdapter.setView(this, mProfileAdapter.getItem(position), false);
+        mSelectedIndex = position;
+    }
+
+    public void openProfileEditor(FragmentActivity fragmentActivity) {
+        Object currentSelection = mProfileAdapter.getItem(mSelectedIndex);
+        if(currentSelection instanceof ProfileAdapterExtra) {
+            performExtraAction((ProfileAdapterExtra) currentSelection);
+        }else{
+            Tools.swapFragment(fragmentActivity, ProfileEditorFragment.class, ProfileEditorFragment.TAG, null);
+        }
     }
 
     /** Reload profiles from the file, forcing the spinner to consider the new data */
@@ -115,8 +127,18 @@ public class mcVersionSpinner extends ExtendedTextView {
                     return;
                 }
                 mPopupWindow.showAsDropDown(mcVersionSpinner.this, 0, offset);
+                // Post() is required for the layout inflation phase
+                post(() -> mListView.setSelection(mSelectedIndex));
             }
         });
+    }
+
+    private void performExtraAction(ProfileAdapterExtra extra) {
+        //Replace with switch-case if you want to add more extra actions
+        if (extra.id == VERSION_SPINNER_PROFILE_CREATE) {
+            Tools.swapFragment((FragmentActivity) getContext(), ProfileTypeSelectFragment.class,
+                    ProfileTypeSelectFragment.TAG, null);
+        }
     }
 
 
@@ -132,13 +154,7 @@ public class mcVersionSpinner extends ExtendedTextView {
                 setProfileSelection(position);
             }else if(item instanceof ProfileAdapterExtra) {
                 hidePopup(false);
-                ProfileAdapterExtra extra = (ProfileAdapterExtra) item;
-                switch (extra.id) {
-                    case VERSION_SPINNER_PROFILE_CREATE:
-                        Tools.swapFragment((FragmentActivity) getContext(), ProfileTypeSelectFragment.class,
-                                ProfileTypeSelectFragment.TAG, true, null);
-                        break;
-                }
+                performExtraAction((ProfileAdapterExtra) item);
             }
         });
 

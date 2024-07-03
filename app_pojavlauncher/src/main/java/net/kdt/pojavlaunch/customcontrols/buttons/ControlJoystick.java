@@ -52,7 +52,7 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
         mControlData = data;
         setProperties(preProcessProperties(data, layout));
         setDeadzone(35);
-        setFixedCenter(false);
+        setFixedCenter(data.absolute);
         setAutoReCenterButton(true);
 
         injectBehaviors();
@@ -91,7 +91,10 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
         mControlData = (ControlJoystickData) properties;
         mControlData.isHideable = true;
         ControlInterface.super.setProperties(properties, changePos);
-        postDelayed(() -> setForwardLockDistance(mControlData.forwardLock ? (int) Tools.dpToPx(60) : 0), 10);
+        postDelayed(() -> {
+            setForwardLockDistance(mControlData.forwardLock ? (int) Tools.dpToPx(60) : 0);
+            setFixedCenter(mControlData.absolute);
+        }, 10);
     }
 
     @Override
@@ -102,14 +105,14 @@ public class ControlJoystick extends JoystickView implements ControlInterface {
 
     @Override
     public void cloneButton() {
-        ControlData data = new ControlJoystickData(getProperties());
-        getControlLayoutParent().addJoystickButton((ControlJoystickData) data);
+        ControlJoystickData data = new ControlJoystickData(mControlData);
+        getControlLayoutParent().addJoystickButton(data);
     }
 
 
     @Override
     public void setBackground() {
-        setBorderWidth((int) Tools.dpToPx(getProperties().strokeWidth));
+        setBorderWidth((int) Tools.dpToPx(getProperties().strokeWidth * (getControlLayoutParent().getLayoutScale()/100f)));
         setBorderColor(getProperties().strokeColor);
         setBackgroundColor(getProperties().bgColor);
     }

@@ -17,6 +17,8 @@ import net.kdt.pojavlaunch.utils.JREUtils;
 
 public class LauncherPreferences {
     public static final String PREF_KEY_CURRENT_PROFILE = "currentProfile";
+    public static final String PREF_KEY_SKIP_NOTIFICATION_CHECK = "skipNotificationPermissionCheck";
+
     public static SharedPreferences DEFAULT_PREF;
     public static String PREF_RENDERER = "opengles2";
 
@@ -60,7 +62,12 @@ public class LauncherPreferences {
     public static boolean PREF_DUMP_SHADERS = false;
     public static float PREF_DEADZONE_SCALE = 1f;
     public static boolean PREF_BIG_CORE_AFFINITY = false;
-
+    public static boolean PREF_ZINK_PREFER_SYSTEM_DRIVER = false;
+    
+    public static boolean PREF_VERIFY_MANIFEST = true;
+    public static String PREF_DOWNLOAD_SOURCE = "default";
+    public static boolean PREF_SKIP_NOTIFICATION_PERMISSION_CHECK = false;
+    public static boolean PREF_VSYNC_IN_ZINK = true;
 
 
     public static void loadPreferences(Context ctx) {
@@ -68,9 +75,8 @@ public class LauncherPreferences {
         Tools.initContextConstants(ctx);
 
         PREF_RENDERER = DEFAULT_PREF.getString("renderer", "opengles2");
-
-		PREF_BUTTONSIZE = DEFAULT_PREF.getInt("buttonscale", 100);
-		PREF_MOUSESCALE = DEFAULT_PREF.getInt("mousescale", 100);
+        PREF_BUTTONSIZE = DEFAULT_PREF.getInt("buttonscale", 100);
+        PREF_MOUSESCALE = DEFAULT_PREF.getInt("mousescale", 100);
 		PREF_MOUSESPEED = ((float)DEFAULT_PREF.getInt("mousespeed",100))/100f;
 		PREF_HIDE_SIDEBAR = DEFAULT_PREF.getBoolean("hideSidebar", false);
 		PREF_IGNORE_NOTCH = DEFAULT_PREF.getBoolean("ignoreNotch", false);
@@ -101,8 +107,13 @@ public class LauncherPreferences {
         PREF_FORCE_VSYNC = DEFAULT_PREF.getBoolean("force_vsync", false);
         PREF_BUTTON_ALL_CAPS = DEFAULT_PREF.getBoolean("buttonAllCaps", true);
         PREF_DUMP_SHADERS = DEFAULT_PREF.getBoolean("dump_shaders", false);
-        PREF_DEADZONE_SCALE = DEFAULT_PREF.getInt("gamepad_deadzone_scale", 100)/100f;
+        PREF_DEADZONE_SCALE = ((float) DEFAULT_PREF.getInt("gamepad_deadzone_scale", 100))/100f;
         PREF_BIG_CORE_AFFINITY = DEFAULT_PREF.getBoolean("bigCoreAffinity", false);
+        PREF_ZINK_PREFER_SYSTEM_DRIVER = DEFAULT_PREF.getBoolean("zinkPreferSystemDriver", false);
+        PREF_DOWNLOAD_SOURCE = DEFAULT_PREF.getString("downloadSource", "default");
+        PREF_VERIFY_MANIFEST = DEFAULT_PREF.getBoolean("verifyManifest", true);
+        PREF_SKIP_NOTIFICATION_PERMISSION_CHECK = DEFAULT_PREF.getBoolean(PREF_KEY_SKIP_NOTIFICATION_CHECK, false);
+        PREF_VSYNC_IN_ZINK = DEFAULT_PREF.getBoolean("vsync_in_zink", true);
 
         String argLwjglLibname = "-Dorg.lwjgl.opengl.libname=";
         for (String arg : JREUtils.parseJavaArguments(PREF_CUSTOM_JAVA_ARGS)) {
